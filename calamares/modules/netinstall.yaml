@@ -257,7 +257,6 @@
     - plasma-systemmonitor
     - plasma-thunderbolt
     - plasma-workspace
-    - plymouth-kcm
     - powerdevil
     - qt6-wayland
     - plasma-login-manager
