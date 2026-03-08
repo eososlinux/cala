@@ -9,7 +9,7 @@
     - linux-headers
 - name: "Bootloader"
   description: "Select your bootloader"
-  hidden: false
+  hidden: true
   selected: true
   critical: true
   subgroups:
