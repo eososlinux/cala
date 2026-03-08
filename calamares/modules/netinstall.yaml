@@ -225,6 +225,7 @@
     - breeze-gtk
     - dolphin
     - egl-wayland
+    - fastfetch
     - ffmpegthumbs
     - filelight
     - fwupd
