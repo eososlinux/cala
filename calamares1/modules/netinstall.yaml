@@ -9,7 +9,7 @@
     - linux-headers
 - name: "Bootloader"
   description: "Select your bootloader"
-  hidden: false
+  hidden: true
   selected: true
   critical: true
   subgroups:
@@ -33,7 +33,6 @@
       selected: false
       packages:
         - limine
-        - limine-snapper-sync
 
 - name: "Core Packages"
   description: "needed Core packages"
@@ -150,6 +149,7 @@
         - opendesktop-fonts
         - ttf-bitstream-vera
         - ttf-dejavu
+        - ttf-jetbrains-mono-nerd
         - ttf-liberation
         - ttf-opensans
         - ttf-meslo-nerd
@@ -244,7 +244,7 @@
     - kscreen
     - kwallet-pam
     - kwalletmanager
-    - partitionmanager
+    - libplasma
     - phonon-qt6-vlc
     - plasma-browser-integration
     - plasma-desktop
@@ -257,7 +257,6 @@
     - plasma-workspace
     - plymouth
     - plymouth-kcm
-    - plymouth-theme-core
     - powerdevil
     - qt6-wayland
     - plasma-login-manager
@@ -268,19 +267,11 @@
 - name: "CPU specific Microcode update packages"
   description: "Microcode update image for AMD and Intel CPU"
   hidden: false
-  selected: false
+  selected: true
   critical: true
   packages:
     - amd-ucode
     - intel-ucode
-- name: "Drivers NVIDIA"
-  description: " driver NVIDIA."
-  expanded: false
-  selected: false
-  packages:
-    - nvidia
-    - nvidia-utils
-    - nvidia-settings
 - name: "Firefox and language package"
   description: "Add firefox and language pack if possible"
   hidden: false
@@ -312,7 +303,7 @@
   description: "Screen reader and mouse tweaks (impaired vision)"
   hidden: false
   selected: false
-  critical: true
+  critical: false
   packages:
     - espeak-ng
     - mousetweaks
