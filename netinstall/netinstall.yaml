@@ -15,7 +15,7 @@
   subgroups:
     - name: "GRUB"
       description: "GRUB - Most widely used boot manager"
-      selected: false
+      selected: true
       packages:
         - grub
     - name: "rEFInd"
@@ -33,7 +33,6 @@
       selected: false
       packages:
         - limine
-        - limine-snapper-sync
 
 - name: "Core Packages"
   description: "needed Core packages"
