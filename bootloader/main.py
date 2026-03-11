@@ -618,7 +618,7 @@ def run_grub_mkconfig(partitions, output_file):
         check_target_env_call([libcalamares.job.configuration["grubMkconfig"], "-o", output_file])
 
 
-def run_grub_install(fw_type, partitions, efi_directory, install_hybrid_grub):
+def run_grub_install(fw_type, partitions, efi_directory):
     """
     Runs grub-install in the target environment
 
@@ -699,7 +699,7 @@ def show_broken_uefi_warning():
 def get_partition_drive(device):
     """Auxiliar: Retorna el disco (ej: /dev/sda) y el número de partición"""
     # Esta regex soporta /dev/sdX, /dev/vdX y /dev/nvmeXnXpX
-    match = re.match(r'(.+?)(?:p?(\[0-9]+))?$', device)
+    match = re.match(r'(.+?)(?:p?([0-9]+))?$', device)
     if match and match.group(2):
         return match.group(1), match.group(2)
     return device, "1"
@@ -1093,7 +1093,7 @@ def prepare_bootloader(fw_type, install_hybrid_grub):
     elif efi_boot_loader == "limine":
         install_limine(efi_directory, fw_type)
     elif efi_boot_loader == "grub":
-        install_grub(efi_directory, fw_type, install_hybrid_grub)
+        install_grub(efi_directory, fw_type)
     else:
         libcalamares.utils.debug("WARNING: the combination of "
                                  "boot-loader '{!s}' and firmware '{!s}' "
