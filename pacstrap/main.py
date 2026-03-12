@@ -115,9 +115,20 @@ def run():
     elif bootloader == "systemd-boot":
         base_packages += ["systemd-boot-manager"]
 
-    if (is_root_on_zfs):
-        base_packages += ["zfs-utils", "linux-cachyos-zfs", "linux-cachyos-lts-zfs"]
-    elif is_root_on_btrfs:
+    # Detect CPU vendor and add the correct microcode package
+    try:
+        with open("/proc/cpuinfo") as f:
+            for line in f:
+                if line.startswith("vendor_id"):
+                    if "GenuineIntel" in line:
+                        base_packages.append("intel-ucode")
+                    else:
+                        base_packages.append("amd-ucode")
+                    break
+    except Exception as e:
+        libcalamares.utils.warning("Failed to detect CPU vendor for microcode: {!s}".format(e))
+
+    if is_root_on_btrfs:
         libcalamares.utils.debug("Root on BTRFS")
         if bootloader == "limine":
             base_packages += ["snapper", "btrfs-assistant", "limine-snapper-sync" ]
@@ -125,10 +136,6 @@ def run():
             base_packages += ["snap-pac", "btrfs-progs", "grub-btrfs", "inotify-tools", "btrfs-assistant"]
         elif bootloader == "refind" or bootloader == "refind-ai":
             base_packages += ["snapper", "btrfs-assistant"]
-
-    elif is_root_on_bcachefs:
-        libcalamares.utils.debug("Root on BCACHEFS")
-        base_packages += ["bcachefs-tools"]
 
     # run the pacstrap
     pacstrap_command = ["/etc/calamares/scripts/pacstrap_calamares", "-c", root_mount_point] + base_packages

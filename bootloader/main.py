@@ -618,7 +618,7 @@ def run_grub_mkconfig(partitions, output_file):
         check_target_env_call([libcalamares.job.configuration["grubMkconfig"], "-o", output_file])
 
 
-def run_grub_install(fw_type, partitions, efi_directory):
+def run_grub_install(fw_type, partitions, efi_directory, install_hybrid_grub):
     """
     Runs grub-install in the target environment
 
@@ -629,7 +629,6 @@ def run_grub_install(fw_type, partitions, efi_directory):
     """
 
     is_zfs = any([is_zfs_root(partition) for partition in partitions])
-
     # zfs needs an environment variable set for grub
     if is_zfs:
         check_target_env_call(["sh", "-c", "echo ZPOOL_VDEV_NAME_PATH=1 >> /etc/environment"])
@@ -653,7 +652,7 @@ def run_grub_install(fw_type, partitions, efi_directory):
             check_target_env_call(grubinstall_command)
 
     else:
-        if libcalamares.globalstorage.value("bootLoader") is None:
+        if libcalamares.globalstorage.value("bootLoader") is None and install_hybrid_grub:
             efi_install_path = libcalamares.globalstorage.value("efiSystemPartition")
             if efi_install_path is None or efi_install_path == "":
                 efi_install_path = "/boot/efi"
@@ -696,12 +695,18 @@ def show_broken_uefi_warning():
         "install the system by yourself for default boot later."
     )
 
-def get_partition_drive(device):
-    """Auxiliary: Returns disk (e.g. /dev/sda) and partition number"""
-    match = re.match(r'(.+?)(?:p?([0-9]+))?$', device)
-    if match and match.group(2):
-        return match.group(1), match.group(2)
-    return device, "1"
+def get_partition_drive(partition):
+    devname = partition.replace("/dev/", "")
+
+    if not os.path.exists(f"/sys/class/block/{devname}/partition"):
+        return partition, 0
+
+    with open(f"/sys/class/block/{devname}/partition", "r") as f:
+        partition_number = f.readline().strip()
+
+    parent_blockdev = os.path.dirname(os.readlink(f"/sys/class/block/{devname}"))
+    drive = f"/dev/{os.path.basename(parent_blockdev)}"
+    return drive, partition_number
 
 def add_additional_entries_limine(efi_directory, installation_root_path, fw_type):
     """
@@ -763,24 +768,28 @@ def update_limine_config(efi_directory, installation_root_path, fw_type):
             config_file.write("remember_last_entry: yes\n")
         config_file.write("\n")
 
+        # Copy splash logo
         try:
-            splash = libcalamares.job.configuration.get("limineSplashLogo", None)
-            if splash:
-                install_efi_directory = installation_root_path + efi_directory
-                splash_path = installation_root_path + splash
-                if os.path.exists(splash_path):
-                    shutil.copy2(splash_path, install_efi_directory)
-                    
-                    config_file.write("# Custom Limine Theme\n")
-                    config_file.write("term_background: 000000\n")
-                    config_file.write("term_foreground: ffffff\n")
-                    config_file.write("interface_branding: My Linux System\n")
-                    config_file.write(f"wallpaper: boot():/{os.path.basename(splash_path)}\n\n")
-            else:
-                libcalamares.utils.debug("No limineSplashLogo set, using default text mode")
-        except Exception as e:
-            libcalamares.utils.warning(f'Error configuring visual theme: {str(e)}')
+            splash = libcalamares.job.configuration["limineSplashLogo"]
+            install_efi_directory = installation_root_path + efi_directory
+            splash_path = installation_root_path + splash
+            if os.path.exists(splash_path):
+                shutil.copy2(splash_path, install_efi_directory)
 
+                # TODO (ventureo): This should be properly packaged when
+                # limine starts supporting drop-in configuration files.
+                config_file.write("term_palette: 1e1e2e;f38ba8;a6e3a1;f9e2af;89b4fa;f5c2e7;94e2d5;cdd6f4\n")
+                config_file.write("term_palette_bright: 585b70;f38ba8;a6e3a1;f9e2af;89b4fa;f5c2e7;94e2d5;cdd6f4\n")
+                config_file.write("term_background: ffffffff\n")
+                config_file.write("term_foreground: cdd6f4\n")
+                config_file.write("term_background_bright: ffffffff\n")
+                config_file.write("term_foreground_bright: cdd6f4\n")
+                config_file.write("interface_branding:\n")
+                config_file.write(f"wallpaper: boot():/{os.path.basename(splash_path)}\n\n")
+            else:
+                libcalamares.utils.warning('Splash logo specified in limineSplashLogo not found!')
+        except KeyError:
+            libcalamares.utils.warning('limineSplashLogo not set. Skipping wallpaper in limine.conf')
 
         machine_id = get_machine_id(installation_root_path)
         config_file.write(f"comment: machine-id={machine_id}\n")
@@ -846,58 +855,68 @@ def install_limine(efi_directory, fw_type):
         check_target_env_call(["limine", "bios-install", drive])
 
 
-def install_grub(efi_directory, fw_type):
+def install_grub(efi_directory, fw_type, install_hybrid_grub):
     """
     Installs grub as bootloader, either in pc or efi mode.
+
+    :param efi_directory:
+    :param fw_type:
+    :param install_hybrid_grub:
     """
+    # get the partition from global storage
     partitions = libcalamares.globalstorage.value("partitions")
-    installation_root_path = libcalamares.globalstorage.value("rootMountPoint")
-    
     if not partitions:
         libcalamares.utils.warning(_("Failed to install grub, no partitions defined in global storage"))
         return
 
-    grub_default_host = "/etc/default/grub"
-    grub_default_target = os.path.join(installation_root_path, "etc/default/grub")
-    
-    if os.path.exists(grub_default_host):
-        libcalamares.utils.debug(f"Copying GRUB configuration to {grub_default_target}")
-        os.makedirs(os.path.dirname(grub_default_target), exist_ok=True)
-        shutil.copy2(grub_default_host, grub_default_target)
-
     if fw_type != "bios" and fw_type != "efi":
         raise ValueError("fw_type must be 'bios' or 'efi'")
 
-    if fw_type == "efi":
+    if fw_type == "efi" or install_hybrid_grub:
         libcalamares.utils.debug("Bootloader: grub (efi)")
+        libcalamares.utils.debug(f"install_hybrid_grub: {install_hybrid_grub}")
+        installation_root_path = libcalamares.globalstorage.value("rootMountPoint")
         install_efi_directory = installation_root_path + efi_directory
 
         if not os.path.isdir(install_efi_directory):
             os.makedirs(install_efi_directory)
 
         efi_bootloader_id = efi_label(efi_directory)
-        _, efi_grub_file, efi_boot_file = get_grub_efi_parameters()
 
-        run_grub_install("efi", partitions, efi_directory)
+        efi_target, efi_grub_file, efi_boot_file = get_grub_efi_parameters()
 
-        efi_dir_fw = vfat_correct_case(install_efi_directory, "EFI")
-        if not os.path.exists(efi_dir_fw):
-            os.makedirs(efi_dir_fw)
+        run_grub_install("efi", partitions, efi_directory, install_hybrid_grub)
 
-        efi_boot_dir = vfat_correct_case(efi_dir_fw, "boot")
-        if not os.path.exists(efi_boot_dir):
-            os.makedirs(efi_boot_dir)
+        # VFAT is weird, see issue CAL-385
+        install_efi_directory_firmware = (vfat_correct_case(
+            install_efi_directory,
+            "EFI"))
+        if not os.path.exists(install_efi_directory_firmware):
+            os.makedirs(install_efi_directory_firmware)
 
+        # there might be several values for the boot directory
+        # most usual they are boot, Boot, BOOT
+
+        install_efi_boot_directory = (vfat_correct_case(
+            install_efi_directory_firmware,
+            "boot"))
+        if not os.path.exists(install_efi_boot_directory):
+            os.makedirs(install_efi_boot_directory)
+
+        # Workaround for some UEFI firmwares
         fallback = "installEFIFallback"
+        libcalamares.utils.debug("UEFI Fallback: " + str(libcalamares.job.configuration.get(fallback, "<unset>")))
         if libcalamares.job.configuration.get(fallback, True):
-            source = os.path.join(efi_dir_fw, efi_bootloader_id, efi_grub_file)
-            target = os.path.join(efi_boot_dir, efi_boot_file)
-            if os.path.exists(source):
-                shutil.copy2(source, target)
+            libcalamares.utils.debug("  .. installing '{!s}' fallback firmware".format(efi_boot_file))
+            efi_file_source = os.path.join(install_efi_directory_firmware,
+                                           efi_bootloader_id,
+                                           efi_grub_file)
+            efi_file_target = os.path.join(install_efi_boot_directory, efi_boot_file)
 
-    else:
+            shutil.copy2(efi_file_source, efi_file_target)
+    if fw_type == "bios" or install_hybrid_grub:
         libcalamares.utils.debug("Bootloader: grub (bios)")
-        run_grub_install("bios", partitions, efi_directory)
+        run_grub_install("bios", partitions, efi_directory, install_hybrid_grub)
 
     run_grub_mkconfig(partitions, libcalamares.job.configuration["grubCfg"])
 
@@ -1028,7 +1047,7 @@ def install_refind(efi_directory):
     update_refind_config(efi_directory, installation_root_path)
 
 
-def prepare_bootloader(fw_type):
+def prepare_bootloader(fw_type, install_hybrid_grub):
     """
     Prepares bootloader.
     Based on value 'efi_boot_loader', it either calls systemd-boot
@@ -1052,7 +1071,7 @@ def prepare_bootloader(fw_type):
         try:
             efi_boot_loader = libcalamares.job.configuration["efiBootLoader"]
         except KeyError:
-            if fw_type == "efi":
+            if fw_type == "efi" or install_hybrid_grub:
                 libcalamares.utils.warning("Configuration missing both efiBootLoader and efiBootLoaderVar on an EFI-enabled  "
                                            "system, bootloader not installed")
                 return
@@ -1080,7 +1099,7 @@ def prepare_bootloader(fw_type):
     elif efi_boot_loader == "limine":
         install_limine(efi_directory, fw_type)
     elif efi_boot_loader == "grub":
-        install_grub(efi_directory, fw_type)
+        install_grub(efi_directory, fw_type, install_hybrid_grub)
     else:
         libcalamares.utils.debug("WARNING: the combination of "
                                  "boot-loader '{!s}' and firmware '{!s}' "
@@ -1097,6 +1116,12 @@ def run():
     fw_type = libcalamares.globalstorage.value("firmwareType")
     boot_loader = libcalamares.globalstorage.value("bootLoader")
 
+    install_hybrid_grub = libcalamares.job.configuration.get("installHybridGRUB", False)
+    efi_boot_loader = libcalamares.job.configuration.get("efiBootLoader", "")
+
+    if install_hybrid_grub == True and efi_boot_loader != "grub":
+        raise ValueError(f"efi_boot_loader '{efi_boot_loader}' is illegal when install_hybrid_grub is 'true'!")
+
     if boot_loader is None and fw_type != "efi":
         libcalamares.utils.warning("Non-EFI system, and no bootloader is set.")
         return None
@@ -1110,7 +1135,7 @@ def run():
             return None
 
     try:
-        prepare_bootloader(fw_type)
+        prepare_bootloader(fw_type, install_hybrid_grub)
     except subprocess.CalledProcessError as e:
         libcalamares.utils.warning(str(e))
         libcalamares.utils.debug("stdout:" + str(e.stdout))
