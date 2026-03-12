@@ -38,8 +38,8 @@
 - name: "Core Packages"
   description: "needed Core packages"
   hidden: false
-  selected: true
-  critical: true
+  selected: false
+  critical: false
   packages:
     - core-wallpapers
     - core-icons
