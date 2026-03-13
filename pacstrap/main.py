@@ -105,6 +105,7 @@ def run():
     is_root_on_zfs = (curr_filesystem == "zfs\n")
     is_root_on_btrfs = (curr_filesystem == "btrfs\n")
     is_root_on_bcachefs = (curr_filesystem == "bcachefs\n")
+    is_efi = os.path.isdir("/sys/firmware/efi")
 
     if bootloader == "grub":
         base_packages += ["grub", "os-prober"]
@@ -131,7 +132,9 @@ def run():
     if is_root_on_btrfs:
         libcalamares.utils.debug("Root on BTRFS")
         if bootloader == "limine":
-            base_packages += ["snapper", "btrfs-assistant", "limine-snapper-sync" ]
+            base_packages += ["snapper", "btrfs-assistant"]
+            if is_efi:
+                base_packages += ["limine-snapper-sync"]
         elif bootloader == "grub":
             base_packages += ["snap-pac", "btrfs-progs", "grub-btrfs", "inotify-tools", "btrfs-assistant"]
         elif bootloader == "refind" or bootloader == "refind-ai":
