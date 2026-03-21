@@ -64,20 +64,6 @@ class ConfigController:
         )
         return output[0].strip()
 
-    def mark_orphans_as_explicit(self) -> None:
-        libcalamares.utils.debug(
-            "Marking orphaned packages as explicit in installed system..."
-        )
-        target_env_call([
-            "sh", "-c",
-            "orphans=$(pacman -Qdtq); "
-            "if [ -n \"$orphans\" ]; then pacman -D --asexplicit $orphans; fi"
-        ])
-        libcalamares.utils.debug("Package marking completed.")
-
-    # ---------------------------------------------------------
-    # MICROCODE FIX
-    # ---------------------------------------------------------
     def handle_ucode(self):
         vendor = subprocess.getoutput(
             "grep -m1 vendor_id /proc/cpuinfo | awk '{print $3}'"
@@ -96,10 +82,16 @@ class ConfigController:
                 "pacman -Q amd-ucode && pacman -Rns --noconfirm amd-ucode || true"
             ])
 
-    # ---------------------------------------------------------
-    # BTRFS DETECTION
-    # ---------------------------------------------------------
+    def is_bios(self) -> bool:
+        """
+        Checks if the target system is using BIOS (Legacy) firmware.
+        """
+        return libcalamares.globalstorage.value("targetFirmware") == "bios"
+
     def is_btrfs_root(self) -> bool:
+        """
+        Checks if the root partition (/) is formatted with Btrfs.
+        """
         partitions = libcalamares.globalstorage.value("partitions")
 
         if not partitions:
@@ -111,56 +103,40 @@ class ConfigController:
 
         return False
 
-    # ---------------------------------------------------------
-    # DETECCIÓN DE BIOS / UEFI
-    # ---------------------------------------------------------
-    def is_bios(self) -> bool:
-        """ Retorna True si el sistema es BIOS Legacy, False si es UEFI """
-        return not exists("/sys/firmware/efi")
-
-    # ---------------------------------------------------------
-    # LIMINE FIX (Solo para BIOS)
-    # ---------------------------------------------------------
     def fix_limine(self):
-        # Solo ejecutar si es BIOS Legacy
-        if self.is_bios():
-            libcalamares.utils.debug("Sistema BIOS detectado. Aplicando fix de Limine...")
-            
-            # 1. Eliminar el antiguo
+        """
+        Fixes Limine bootloader configuration specifically for BIOS systems.
+        If GRUB or UEFI is detected, this section is skipped.
+        """
+        bootloader = libcalamares.globalstorage.value("packagechooser_bootloader")
+
+        # Only apply if it's a BIOS system and the chosen bootloader is Limine
+        if self.is_bios() and bootloader == "limine":
+            libcalamares.utils.debug("BIOS system with Limine detected. Applying fix...")
+
+            # 1. Remove the obsolete entry tool to prevent conflicts
             target_env_call([
                 "sh", "-c",
                 "pacman -R --noconfirm limine-entry-tool || true"
             ])
 
-            # 2. Instalar el hook con elección automática de proveedor (Java)
+            # 2. Install the necessary mkinitcpio hook for Limine automation
             target_env_call([
                 "sh", "-c",
-                "echo 1 | pacman -S --noconfirm --needed limine-mkinitcpio-hook"
+                "pacman -S --noconfirm --needed limine-mkinitcpio-hook"
             ])
-            
-            # 3. Regenerar initramfs para disparar la creación del limine.conf
-            libcalamares.utils.debug("Generando archivos de arranque para BIOS...")
-            target_env_call(["mkinitcpio", "-P"])
-        else:
-            libcalamares.utils.debug("Sistema UEFI detectado. Saltando fix de Limine BIOS.")
 
-    # ---------------------------------------------------------
-    # MAIN RUN
-    # ---------------------------------------------------------
+            # 3. Regenerate the initramfs to include the new hook
+            libcalamares.utils.debug("Generating boot files for Limine (BIOS)...")
+            target_env_call(["mkinitcpio", "-P"])
+
+        else:
+            # If GRUB is selected or the system is UEFI, we do nothing
+            libcalamares.utils.debug("Limine fix not required (not BIOS or not Limine).")
+
     def run(self) -> None:
-        # self.init_keyring()
-        # self.populate_keyring()
 
         self.fix_limine()
-
-        # --- Microcode ---
-        # self.handle_ucode()
-
-        # Kill gpg-agent
-        # self.terminate('gpg-agent')
-
-        # Mark orphan packages
-        # self.mark_orphans_as_explicit()
 
         # --- Snapper config ---
         if self.is_btrfs_root():
