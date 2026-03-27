@@ -1,9 +1,0 @@
-dontChroot: true
-script:
-  - "mkdir -p ${ROOT}/tmp"
-  - "cp /etc/os-release ${ROOT}/tmp/os-release-live"
-
-
-dontChroot: false
-script:
-  - "cp -f /tmp/os-release-live /etc/os-release"
